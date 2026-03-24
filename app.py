@@ -306,138 +306,137 @@ with tab_run:
 
     if st.session_state.df_mapped is None:
         st.warning("⬅️ Upload a file and confirm the column mapping in **Upload & Map** first.")
-        st.stop()
-
-    df_mapped = st.session_state.df_mapped
-    pop_count  = len(df_mapped)
-
-    st.info(
-        f"**{pop_count:,}** entries ready for analysis from "
-        f"**{st.session_state.upload_filename}**"
-    )
-
-    # ── Module selection ──────────────────────────────────────────────────────
-    st.subheader("Select Modules to Run")
-
-    # Handle Select All / Deselect All BEFORE widgets are rendered
-    col_all, col_none = st.columns([1, 1])
-    if col_all.button("Select All"):
-        for _, key, _ in _MODULES:
-            st.session_state[f"chk_{key}"] = True
-    if col_none.button("Deselect All"):
-        for _, key, _ in _MODULES:
-            st.session_state[f"chk_{key}"] = False
-
-    cols_sel = st.columns(2)
-    module_checks = {}
-    for i, (name, key, _) in enumerate(_MODULES):
-        with cols_sel[i % 2]:
-            module_checks[key] = st.checkbox(name, value=True, key=f"chk_{key}")
-
-    # ── Optional inputs ───────────────────────────────────────────────────────
-    st.divider()
-    st.subheader("Optional Inputs")
-
-    with st.expander("🔑 Extra Keywords (Keyword Flags module)"):
-        raw_kw = st.text_area(
-            "Add extra keywords (one per line)",
-            height=100,
-            placeholder="e.g.\nmanagement approval\nCFO instruction",
-            help="These are added on top of the default keyword list in config.py",
-        )
-        st.session_state.extra_keywords = [
-            kw.strip() for kw in raw_kw.splitlines() if kw.strip()
-        ]
-        if st.session_state.extra_keywords:
-            st.caption(f"{len(st.session_state.extra_keywords)} extra keyword(s) will be used.")
-
-    with st.expander("📅 Holiday Calendar (After-Hours module)"):
-        holiday_file = st.file_uploader(
-            "Upload holiday dates CSV (one date per row, first column)",
-            type=["csv"],
-            key="holiday_upload",
-            help="Optional — entries on these dates will be flagged as Holiday postings",
-        )
-        if holiday_file:
-            try:
-                st.session_state.holiday_dates = _load_holiday_csv(holiday_file)
-                st.success(f"✅ {len(st.session_state.holiday_dates)} holiday dates loaded.")
-            except Exception as exc:
-                st.error(f"Could not parse holiday file: {exc}")
-
-    with st.expander("📋 Chart of Accounts (Unusual Combos module)"):
-        coa_file = st.file_uploader(
-            "Upload Chart of Accounts CSV (columns: account_code, account_type)",
-            type=["csv", "xlsx"],
-            key="coa_upload",
-            help="Optional — improves account-type classification in the Unusual Combos module",
-        )
-        if coa_file:
-            try:
-                coa_df = _load_uploaded_file(coa_file)
-                st.session_state.coa_df = coa_df
-                st.success(f"✅ COA loaded — {len(coa_df):,} accounts.")
-                st.dataframe(coa_df.head(5), use_container_width=True)
-            except Exception as exc:
-                st.error(f"Could not parse COA file: {exc}")
-
-    # ── Run button ────────────────────────────────────────────────────────────
-    st.divider()
-    selected_modules = [
-        (name, key, fn)
-        for name, key, fn in _MODULES
-        if module_checks.get(key, False)
-    ]
-
-    if not selected_modules:
-        st.warning("Select at least one module to run.")
     else:
-        if st.button(
-            f"▶ Run {len(selected_modules)} Selected Test(s)",
-            type="primary",
-            use_container_width=True,
-        ):
-            # ── Build extra kwargs per module ─────────────────────────────────
-            def _extra_kwargs(key: str) -> dict:
-                if key == "after_hours":
-                    return {"holiday_dates": st.session_state.holiday_dates}
-                if key == "account_combos":
-                    return {"coa_df": st.session_state.coa_df}
-                if key == "keywords":
-                    return {"extra_keywords": st.session_state.extra_keywords}
-                return {}
+        df_mapped = st.session_state.df_mapped
+        pop_count = len(df_mapped)
 
-            # ── Execute modules with progress bar ─────────────────────────────
-            progress_bar = st.progress(0.0)
-            status_text  = st.empty()
-            results: dict[str, dict] = {}
-            n = len(selected_modules)
+        st.info(
+            f"**{pop_count:,}** entries ready for analysis from "
+            f"**{st.session_state.upload_filename}**"
+        )
 
-            for i, (name, key, fn) in enumerate(selected_modules):
-                status_text.markdown(f"⚙️ Running **{name}** …  ({i+1}/{n})")
-                try:
-                    result = fn(df_mapped, **_extra_kwargs(key))
-                    results[result["module_name"]] = result
-                except Exception as exc:
-                    st.error(f"❌ {name} failed: {exc}")
-                progress_bar.progress((i + 1) / n)
+        # ── Module selection ──────────────────────────────────────────────────
+        st.subheader("Select Modules to Run")
 
-            st.session_state.module_results = results
-            st.session_state.analysis_run   = True
-            progress_bar.progress(1.0)
+        # Handle Select All / Deselect All BEFORE widgets are rendered
+        col_all, col_none = st.columns([1, 1])
+        if col_all.button("Select All"):
+            for _, key, _ in _MODULES:
+                st.session_state[f"chk_{key}"] = True
+        if col_none.button("Deselect All"):
+            for _, key, _ in _MODULES:
+                st.session_state[f"chk_{key}"] = False
 
-            # ── Completion summary ─────────────────────────────────────────────
-            total_flags  = sum(r["flag_count"] for r in results.values())
-            overall      = _overall_risk(results)
-            status_text.empty()
-            colour       = _RISK_COLOURS.get(overall, "#7CB542")
-            st.success(
-                f"**✅ Analysis complete** — "
-                f"{pop_count:,} entries tested | "
-                f"{total_flags:,} flags raised | "
-                f"Overall Risk: **:{colour.lstrip('#')}[{overall.upper()}]**"
+        cols_sel = st.columns(2)
+        module_checks = {}
+        for i, (name, key, _) in enumerate(_MODULES):
+            with cols_sel[i % 2]:
+                module_checks[key] = st.checkbox(name, value=True, key=f"chk_{key}")
+
+        # ── Optional inputs ───────────────────────────────────────────────────
+        st.divider()
+        st.subheader("Optional Inputs")
+
+        with st.expander("🔑 Extra Keywords (Keyword Flags module)"):
+            raw_kw = st.text_area(
+                "Add extra keywords (one per line)",
+                height=100,
+                placeholder="e.g.\nmanagement approval\nCFO instruction",
+                help="These are added on top of the default keyword list in config.py",
             )
-            st.balloons()
+            st.session_state.extra_keywords = [
+                kw.strip() for kw in raw_kw.splitlines() if kw.strip()
+            ]
+            if st.session_state.extra_keywords:
+                st.caption(f"{len(st.session_state.extra_keywords)} extra keyword(s) will be used.")
+
+        with st.expander("📅 Holiday Calendar (After-Hours module)"):
+            holiday_file = st.file_uploader(
+                "Upload holiday dates CSV (one date per row, first column)",
+                type=["csv"],
+                key="holiday_upload",
+                help="Optional — entries on these dates will be flagged as Holiday postings",
+            )
+            if holiday_file:
+                try:
+                    st.session_state.holiday_dates = _load_holiday_csv(holiday_file)
+                    st.success(f"✅ {len(st.session_state.holiday_dates)} holiday dates loaded.")
+                except Exception as exc:
+                    st.error(f"Could not parse holiday file: {exc}")
+
+        with st.expander("📋 Chart of Accounts (Unusual Combos module)"):
+            coa_file = st.file_uploader(
+                "Upload Chart of Accounts CSV (columns: account_code, account_type)",
+                type=["csv", "xlsx"],
+                key="coa_upload",
+                help="Optional — improves account-type classification in the Unusual Combos module",
+            )
+            if coa_file:
+                try:
+                    coa_df = _load_uploaded_file(coa_file)
+                    st.session_state.coa_df = coa_df
+                    st.success(f"✅ COA loaded — {len(coa_df):,} accounts.")
+                    st.dataframe(coa_df.head(5), use_container_width=True)
+                except Exception as exc:
+                    st.error(f"Could not parse COA file: {exc}")
+
+        # ── Run button ────────────────────────────────────────────────────────
+        st.divider()
+        selected_modules = [
+            (name, key, fn)
+            for name, key, fn in _MODULES
+            if module_checks.get(key, False)
+        ]
+
+        if not selected_modules:
+            st.warning("Select at least one module to run.")
+        else:
+            if st.button(
+                f"▶ Run {len(selected_modules)} Selected Test(s)",
+                type="primary",
+                use_container_width=True,
+            ):
+                # ── Build extra kwargs per module ─────────────────────────────
+                def _extra_kwargs(key: str) -> dict:
+                    if key == "after_hours":
+                        return {"holiday_dates": st.session_state.holiday_dates}
+                    if key == "account_combos":
+                        return {"coa_df": st.session_state.coa_df}
+                    if key == "keywords":
+                        return {"extra_keywords": st.session_state.extra_keywords}
+                    return {}
+
+                # ── Execute modules with progress bar ─────────────────────────
+                progress_bar = st.progress(0.0)
+                status_text  = st.empty()
+                results: dict[str, dict] = {}
+                n = len(selected_modules)
+
+                for i, (name, key, fn) in enumerate(selected_modules):
+                    status_text.markdown(f"Running **{name}** ...  ({i+1}/{n})")
+                    try:
+                        result = fn(df_mapped, **_extra_kwargs(key))
+                        results[result["module_name"]] = result
+                    except Exception as exc:
+                        st.error(f"❌ {name} failed: {exc}")
+                    progress_bar.progress((i + 1) / n)
+
+                st.session_state.module_results = results
+                st.session_state.analysis_run   = True
+                progress_bar.progress(1.0)
+
+                # ── Completion summary ─────────────────────────────────────────
+                total_flags  = sum(r["flag_count"] for r in results.values())
+                overall      = _overall_risk(results)
+                status_text.empty()
+                colour       = _RISK_COLOURS.get(overall, "#7CB542")
+                st.success(
+                    f"**Analysis complete** — "
+                    f"{pop_count:,} entries tested | "
+                    f"{total_flags:,} flags raised | "
+                    f"Overall Risk: **{overall.upper()}**"
+                )
+                st.balloons()
 
 
 # =============================================================================
@@ -447,194 +446,193 @@ with tab_results:
     st.header("Analysis Results")
 
     if not st.session_state.analysis_run or not st.session_state.module_results:
-        st.info("Run the analysis in **⚙️ Run Analysis** to see results here.")
-        st.stop()
+        st.info("Run the analysis in **Run Analysis** to see results here.")
+    else:
+        results     = st.session_state.module_results
+        overall     = _overall_risk(results)
+        pop_count   = next(iter(results.values()))["population_count"]
+        total_flags = sum(r["flag_count"] for r in results.values())
 
-    results   = st.session_state.module_results
-    overall   = _overall_risk(results)
-    pop_count = next(iter(results.values()))["population_count"]
-    total_flags = sum(r["flag_count"] for r in results.values())
-
-    # ── Overall banner ────────────────────────────────────────────────────────
-    banner_colour = _RISK_COLOURS.get(overall, "#7CB542")
-    st.markdown(
-        f"""
-        <div style="background:{banner_colour};color:white;padding:16px 24px;
-                    border-radius:8px;margin-bottom:16px;">
-            <span style="font-size:1.5rem;font-weight:700;">
-                Overall Engagement Risk: {overall.upper()}
-            </span>
-            &nbsp;&nbsp;
-            <span style="font-size:1rem;opacity:0.9;">
-                {pop_count:,} entries tested &nbsp;|&nbsp;
-                {total_flags:,} flags raised
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ── Summary table ─────────────────────────────────────────────────────────
-    st.subheader("Module Summary")
-
-    summary_rows = []
-    for name, key, _ in _MODULES:
-        result = results.get(name)
-        if result is None:
-            continue
-        summary_rows.append({
-            "Module":          result["module_name"],
-            "Flagged":         result["flag_count"],
-            "% of Population": f"{result['flag_pct']*100:.1f}%",
-            "Risk":            result["risk_rating"],
-        })
-
-    if summary_rows:
-        # Render as an HTML table with risk badges
-        rows_html = ""
-        for i, row in enumerate(summary_rows):
-            bg = "#F2F2F2" if i % 2 == 1 else "#FFFFFF"
-            risk = row["Risk"]
-            badge = _risk_badge(risk)
-            rows_html += (
-                f'<tr style="background:{bg}">'
-                f'<td style="padding:6px 12px">{row["Module"]}</td>'
-                f'<td style="padding:6px 12px;text-align:center">{row["Flagged"]:,}</td>'
-                f'<td style="padding:6px 12px;text-align:center">{row["% of Population"]}</td>'
-                f'<td style="padding:6px 12px;text-align:center">{badge}</td>'
-                f'</tr>'
-            )
-        # Total row
-        rows_html += (
-            f'<tr style="background:#7CB542;color:white;font-weight:bold">'
-            f'<td style="padding:6px 12px">TOTAL</td>'
-            f'<td style="padding:6px 12px;text-align:center">{total_flags:,}</td>'
-            f'<td style="padding:6px 12px;text-align:center">'
-            f'{total_flags/pop_count*100:.1f}%</td>'
-            f'<td style="padding:6px 12px;text-align:center">'
-            f'{_risk_badge(overall)}</td>'
-            f'</tr>'
-        )
+        # ── Overall banner ────────────────────────────────────────────────────
+        banner_colour = _RISK_COLOURS.get(overall, "#7CB542")
         st.markdown(
             f"""
-            <table style="width:100%;border-collapse:collapse;
-                          font-family:Arial,sans-serif;font-size:0.9rem">
-                <thead>
-                    <tr style="background:#7CB542;color:white;font-weight:bold">
-                        <th style="padding:8px 12px;text-align:left">Module</th>
-                        <th style="padding:8px 12px;text-align:center">Flagged</th>
-                        <th style="padding:8px 12px;text-align:center">% of Population</th>
-                        <th style="padding:8px 12px;text-align:center">Risk</th>
-                    </tr>
-                </thead>
-                <tbody>{rows_html}</tbody>
-            </table>
+            <div style="background:{banner_colour};color:white;padding:16px 24px;
+                        border-radius:8px;margin-bottom:16px;">
+                <span style="font-size:1.5rem;font-weight:700;">
+                    Overall Engagement Risk: {overall.upper()}
+                </span>
+                &nbsp;&nbsp;
+                <span style="font-size:1rem;opacity:0.9;">
+                    {pop_count:,} entries tested &nbsp;|&nbsp;
+                    {total_flags:,} flags raised
+                </span>
+            </div>
             """,
             unsafe_allow_html=True,
         )
 
-    st.divider()
+        # ── Summary table ─────────────────────────────────────────────────────
+        st.subheader("Module Summary")
 
-    # ── Per-module expandable sections ────────────────────────────────────────
-    st.subheader("Detailed Module Results")
+        summary_rows = []
+        for name, key, _ in _MODULES:
+            result = results.get(name)
+            if result is None:
+                continue
+            summary_rows.append({
+                "Module":          result["module_name"],
+                "Flagged":         result["flag_count"],
+                "% of Population": f"{result['flag_pct']*100:.1f}%",
+                "Risk":            result["risk_rating"],
+            })
 
-    for name, key, _ in _MODULES:
-        result = results.get(name)
-        if result is None:
-            continue
-
-        risk       = result["risk_rating"]
-        flag_count = result["flag_count"]
-        flag_pct   = result["flag_pct"] * 100
-        icon = {"High": "🔴", "Medium": "🟠", "Low": "🟢"}.get(risk, "⚪")
-
-        with st.expander(
-            f"{icon} {result['module_name']} — "
-            f"{flag_count:,} flagged ({flag_pct:.1f}%)  |  Risk: {risk}",
-            expanded=(risk == "High"),
-        ):
-            col_l, col_r = st.columns([3, 1])
-
-            with col_r:
-                st.markdown(
-                    f'<div style="text-align:center;padding:12px">'
-                    f'{_risk_badge(risk)}</div>',
-                    unsafe_allow_html=True,
+        if summary_rows:
+            # Render as an HTML table with risk badges
+            rows_html = ""
+            for i, row in enumerate(summary_rows):
+                bg = "#F2F2F2" if i % 2 == 1 else "#FFFFFF"
+                risk = row["Risk"]
+                badge = _risk_badge(risk)
+                rows_html += (
+                    f'<tr style="background:{bg}">'
+                    f'<td style="padding:6px 12px">{row["Module"]}</td>'
+                    f'<td style="padding:6px 12px;text-align:center">{row["Flagged"]:,}</td>'
+                    f'<td style="padding:6px 12px;text-align:center">{row["% of Population"]}</td>'
+                    f'<td style="padding:6px 12px;text-align:center">{badge}</td>'
+                    f'</tr>'
                 )
-                st.metric("Flagged",    f"{flag_count:,}")
-                st.metric("Population", f"{result['population_count']:,}")
-                st.metric("Flag %",     f"{flag_pct:.1f}%")
+            # Total row
+            rows_html += (
+                f'<tr style="background:#7CB542;color:white;font-weight:bold">'
+                f'<td style="padding:6px 12px">TOTAL</td>'
+                f'<td style="padding:6px 12px;text-align:center">{total_flags:,}</td>'
+                f'<td style="padding:6px 12px;text-align:center">'
+                f'{total_flags/pop_count*100:.1f}%</td>'
+                f'<td style="padding:6px 12px;text-align:center">'
+                f'{_risk_badge(overall)}</td>'
+                f'</tr>'
+            )
+            st.markdown(
+                f"""
+                <table style="width:100%;border-collapse:collapse;
+                              font-family:Arial,sans-serif;font-size:0.9rem">
+                    <thead>
+                        <tr style="background:#7CB542;color:white;font-weight:bold">
+                            <th style="padding:8px 12px;text-align:left">Module</th>
+                            <th style="padding:8px 12px;text-align:center">Flagged</th>
+                            <th style="padding:8px 12px;text-align:center">% of Population</th>
+                            <th style="padding:8px 12px;text-align:center">Risk</th>
+                        </tr>
+                    </thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+                """,
+                unsafe_allow_html=True,
+            )
 
-            with col_l:
-                # Chart
-                chart = result.get("chart")
-                if chart is not None:
-                    try:
-                        st.plotly_chart(chart, use_container_width=True,
-                                        config={"displayModeBar": False})
-                    except Exception:
-                        pass
+        st.divider()
 
-            # Flagged entries table
-            flagged_df = result.get("flagged_df", pd.DataFrame())
-            if not flagged_df.empty:
-                st.caption(
-                    f"Showing first {min(500, len(flagged_df)):,} of "
-                    f"{len(flagged_df):,} flagged entries"
-                )
-                display_df = flagged_df.head(500).reset_index(drop=True)
-                # Format amount column for display
-                if "amount" in display_df.columns:
-                    display_df = display_df.copy()
-                    display_df["amount"] = display_df["amount"].apply(
-                        lambda v: _inr(float(v)) if pd.notna(v) else ""
+        # ── Per-module expandable sections ────────────────────────────────────
+        st.subheader("Detailed Module Results")
+
+        for name, key, _ in _MODULES:
+            result = results.get(name)
+            if result is None:
+                continue
+
+            risk       = result["risk_rating"]
+            flag_count = result["flag_count"]
+            flag_pct   = result["flag_pct"] * 100
+            icon = {"High": "🔴", "Medium": "🟠", "Low": "🟢"}.get(risk, "⚪")
+
+            with st.expander(
+                f"{icon} {result['module_name']} — "
+                f"{flag_count:,} flagged ({flag_pct:.1f}%)  |  Risk: {risk}",
+                expanded=(risk == "High"),
+            ):
+                col_l, col_r = st.columns([3, 1])
+
+                with col_r:
+                    st.markdown(
+                        f'<div style="text-align:center;padding:12px">'
+                        f'{_risk_badge(risk)}</div>',
+                        unsafe_allow_html=True,
                     )
-                st.dataframe(display_df, use_container_width=True, height=300)
-            else:
-                st.success("No entries flagged by this module.")
+                    st.metric("Flagged",    f"{flag_count:,}")
+                    st.metric("Population", f"{result['population_count']:,}")
+                    st.metric("Flag %",     f"{flag_pct:.1f}%")
 
-            # Module-specific extra stats
-            stats = result.get("summary_stats", {})
+                with col_l:
+                    # Chart
+                    chart = result.get("chart")
+                    if chart is not None:
+                        try:
+                            st.plotly_chart(chart, use_container_width=True,
+                                            config={"displayModeBar": False})
+                        except Exception:
+                            pass
 
-            # Benford's — show chi-square summary
-            if name == "Benford's Law" and stats:
-                p = stats.get("p_value")
-                chi2 = stats.get("chi2")
-                if p is not None:
+                # Flagged entries table
+                flagged_df = result.get("flagged_df", pd.DataFrame())
+                if not flagged_df.empty:
                     st.caption(
-                        f"Chi-square: {chi2:.4f}  |  p-value: {p:.6f}  |  "
-                        f"Result: {'❌ FAIL (p < 0.05)' if p < 0.05 else '✅ PASS'}"
+                        f"Showing first {min(500, len(flagged_df)):,} of "
+                        f"{len(flagged_df):,} flagged entries"
                     )
+                    display_df = flagged_df.head(500).reset_index(drop=True)
+                    # Format amount column for display
+                    if "amount" in display_df.columns:
+                        display_df = display_df.copy()
+                        display_df["amount"] = display_df["amount"].apply(
+                            lambda v: _inr(float(v)) if pd.notna(v) else ""
+                        )
+                    st.dataframe(display_df, use_container_width=True, height=300)
+                else:
+                    st.success("No entries flagged by this module.")
 
-            # User Analysis — show top-10 tables
-            if name == "User Analysis" and stats:
-                t10v = stats.get("top10_by_volume", pd.DataFrame())
-                t10a = stats.get("top10_by_amount", pd.DataFrame())
-                if not t10v.empty:
-                    with st.expander("Top 10 Users by Entry Volume"):
-                        st.dataframe(t10v, use_container_width=True)
-                if not t10a.empty:
-                    with st.expander("Top 10 Users by Total Amount"):
-                        st.dataframe(t10a, use_container_width=True)
+                # Module-specific extra stats
+                stats = result.get("summary_stats", {})
 
-            # Period-End — show month table
-            if name == "Period-End Entry Concentration" and stats:
-                month_tbl = stats.get("month_table", pd.DataFrame())
-                if not month_tbl.empty:
-                    with st.expander("Month-wise Concentration Table"):
-                        st.dataframe(month_tbl, use_container_width=True)
+                # Benford's — show chi-square summary
+                if name == "Benford's Law" and stats:
+                    p = stats.get("p_value")
+                    chi2 = stats.get("chi2")
+                    if p is not None:
+                        st.caption(
+                            f"Chi-square: {chi2:.4f}  |  p-value: {p:.6f}  |  "
+                            f"Result: {'FAIL (p < 0.05)' if p < 0.05 else 'PASS'}"
+                        )
 
-            # Keywords — show keyword hit counts
-            if name == "Keyword Flags" and stats:
-                kc = stats.get("keyword_counts", {})
-                if kc:
-                    kc_df = (
-                        pd.DataFrame(list(kc.items()), columns=["Keyword", "Hits"])
-                        .sort_values("Hits", ascending=False)
-                        .reset_index(drop=True)
-                    )
-                    with st.expander("Keyword Hit Counts"):
-                        st.dataframe(kc_df, use_container_width=True)
+                # User Analysis — show top-10 tables
+                if name == "User Analysis" and stats:
+                    t10v = stats.get("top10_by_volume", pd.DataFrame())
+                    t10a = stats.get("top10_by_amount", pd.DataFrame())
+                    if not t10v.empty:
+                        with st.expander("Top 10 Users by Entry Volume"):
+                            st.dataframe(t10v, use_container_width=True)
+                    if not t10a.empty:
+                        with st.expander("Top 10 Users by Total Amount"):
+                            st.dataframe(t10a, use_container_width=True)
+
+                # Period-End — show month table
+                if name == "Period-End Entry Concentration" and stats:
+                    month_tbl = stats.get("month_table", pd.DataFrame())
+                    if not month_tbl.empty:
+                        with st.expander("Month-wise Concentration Table"):
+                            st.dataframe(month_tbl, use_container_width=True)
+
+                # Keywords — show keyword hit counts
+                if name == "Keyword Flags" and stats:
+                    kc = stats.get("keyword_counts", {})
+                    if kc:
+                        kc_df = (
+                            pd.DataFrame(list(kc.items()), columns=["Keyword", "Hits"])
+                            .sort_values("Hits", ascending=False)
+                            .reset_index(drop=True)
+                        )
+                        with st.expander("Keyword Hit Counts"):
+                            st.dataframe(kc_df, use_container_width=True)
 
 
 # =============================================================================
@@ -645,111 +643,110 @@ with tab_export:
 
     if not st.session_state.analysis_run or not st.session_state.module_results:
         st.warning(
-            "⬅️ Run the analysis in **⚙️ Run Analysis** before exporting.\n\n"
+            "⬅️ Run the analysis in **Run Analysis** before exporting.\n\n"
             "The Excel workpaper will be available once at least one module "
             "has been executed."
         )
-        st.stop()
+    else:
+        results   = st.session_state.module_results
+        overall   = _overall_risk(results)
+        pop_count = next(iter(results.values()))["population_count"]
 
-    results   = st.session_state.module_results
-    overall   = _overall_risk(results)
-    pop_count = next(iter(results.values()))["population_count"]
+        # ── Engagement parameters confirmation ────────────────────────────────
+        st.subheader("Engagement Parameters")
 
-    # ── Engagement parameters confirmation ────────────────────────────────────
-    st.subheader("Engagement Parameters")
+        if not client_name:
+            st.error("Please enter a **Client Name** in the sidebar before exporting.")
+        if not audit_period:
+            st.error("Please enter an **Audit Period** in the sidebar before exporting.")
 
-    if not client_name:
-        st.error("Please enter a **Client Name** in the sidebar before exporting.")
-    if not audit_period:
-        st.error("Please enter an **Audit Period** in the sidebar before exporting.")
+        params = {
+            "client_name":    client_name    or "Unknown Client",
+            "period":         audit_period   or "Unknown Period",
+            "financial_year": financial_year or "",
+            "prepared_by":    prepared_by    or "",
+            "materiality":    materiality    or None,
+            "run_date":       datetime.today(),
+        }
 
-    params = {
-        "client_name":    client_name    or "Unknown Client",
-        "period":         audit_period   or "Unknown Period",
-        "financial_year": financial_year or "",
-        "prepared_by":    prepared_by    or "",
-        "materiality":    materiality    or None,
-        "run_date":       datetime.today(),
-    }
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            st.markdown(f"**Client:** {params['client_name']}")
+            st.markdown(f"**Period:** {params['period']}")
+            st.markdown(f"**Financial Year:** {params['financial_year'] or '—'}")
+        with col_p2:
+            st.markdown(f"**Prepared By:** {params['prepared_by'] or '—'}")
+            mat_display = _inr(float(params["materiality"])) if params["materiality"] else "Not specified"
+            st.markdown(f"**Materiality:** {mat_display}")
+            st.markdown(f"**Run Date:** {params['run_date'].strftime('%d %B %Y')}")
 
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        st.markdown(f"**Client:** {params['client_name']}")
-        st.markdown(f"**Period:** {params['period']}")
-        st.markdown(f"**Financial Year:** {params['financial_year'] or '—'}")
-    with col_p2:
-        st.markdown(f"**Prepared By:** {params['prepared_by'] or '—'}")
-        mat_display = _inr(float(params["materiality"])) if params["materiality"] else "Not specified"
-        st.markdown(f"**Materiality:** {mat_display}")
-        st.markdown(f"**Run Date:** {params['run_date'].strftime('%d %B %Y')}")
-
-    # ── Workbook details ──────────────────────────────────────────────────────
-    st.divider()
-    filename = generate_filename(
-        params["client_name"], params["period"], params["run_date"]
-    )
-    total_flags = sum(r["flag_count"] for r in results.values())
-
-    st.subheader("Workpaper Summary")
-    col_e1, col_e2, col_e3 = st.columns(3)
-    col_e1.metric("Sheets",           "12")
-    col_e2.metric("Total Flags",      f"{total_flags:,}")
-    col_e3.metric("Overall Risk",     overall)
-
-    st.caption(f"Output filename: **{filename}**")
-
-    # ── Sheets that will be included ──────────────────────────────────────────
-    with st.expander("Sheets included in workpaper"):
-        sheets_info = [
-            ("1", "Summary Dashboard",   "Overall risk table + engagement details"),
-            ("2", "Benfords Analysis",   "Expected vs observed digit distribution"),
-            ("3", "Duplicates",          "Exact & near-duplicate JE entries"),
-            ("4", "Round Numbers",       "Round lakh / crore / thousand entries"),
-            ("5", "After Hours Weekend", "Entries posted outside business hours"),
-            ("6", "Period End Entries",  "Entries in last 3–5 days of month"),
-            ("7", "Missing Narration",   "Blank or generic narration entries"),
-            ("8", "Unusual Acct Combos", "Rare or rule-based account combinations"),
-            ("9", "User Analysis",       "Outlier users + self-approvals"),
-            ("10","Keyword Flags",       "High-risk keyword matches"),
-            ("11","Full Population",     "All entries with pipe-separated Flags column"),
-            ("12","Parameters",          "Run parameters & thresholds for audit trail"),
-        ]
-        for num, name, desc in sheets_info:
-            in_results = any(r["module_name"] for r in results.values()) if results else False
-            st.markdown(f"**Sheet {num}** — {name}: _{desc}_")
-
-    # ── Generate and download ─────────────────────────────────────────────────
-    st.divider()
-
-    if st.button("🔄 Generate Excel Workpaper", type="secondary", use_container_width=True):
-        with st.spinner("Building workpaper (this may take a few seconds)…"):
-            try:
-                buf = io.BytesIO()
-                build_workbook(
-                    full_df=st.session_state.df_mapped,
-                    module_results=results,
-                    params=params,
-                    output_path=buf,
-                )
-                buf.seek(0)
-                st.session_state["excel_bytes"]    = buf.getvalue()
-                st.session_state["excel_filename"] = filename
-                st.success("✅ Workpaper generated — click **Download** below.")
-            except Exception as exc:
-                st.error(f"Failed to generate workpaper: {exc}")
-                import traceback
-                st.code(traceback.format_exc())
-
-    if st.session_state.get("excel_bytes"):
-        st.download_button(
-            label="📥 Download Excel Workpaper",
-            data=st.session_state["excel_bytes"],
-            file_name=st.session_state["excel_filename"],
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True,
+        # ── Workbook details ──────────────────────────────────────────────────
+        st.divider()
+        filename = generate_filename(
+            params["client_name"], params["period"], params["run_date"]
         )
-        st.caption(
-            "⚠️ This file contains client data. "
-            "Store it in a secure, access-controlled location per your firm's data policy."
-        )
+        total_flags = sum(r["flag_count"] for r in results.values())
+
+        st.subheader("Workpaper Summary")
+        col_e1, col_e2, col_e3 = st.columns(3)
+        col_e1.metric("Sheets",       "12")
+        col_e2.metric("Total Flags",  f"{total_flags:,}")
+        col_e3.metric("Overall Risk", overall)
+
+        st.caption(f"Output filename: **{filename}**")
+
+        # ── Sheets that will be included ──────────────────────────────────────
+        with st.expander("Sheets included in workpaper"):
+            sheets_info = [
+                ("1",  "Summary Dashboard",   "Overall risk table + engagement details"),
+                ("2",  "Benfords Analysis",   "Expected vs observed digit distribution"),
+                ("3",  "Duplicates",          "Exact & near-duplicate JE entries"),
+                ("4",  "Round Numbers",       "Round lakh / crore / thousand entries"),
+                ("5",  "After Hours Weekend", "Entries posted outside business hours"),
+                ("6",  "Period End Entries",  "Entries in last 3–5 days of month"),
+                ("7",  "Missing Narration",   "Blank or generic narration entries"),
+                ("8",  "Unusual Acct Combos", "Rare or rule-based account combinations"),
+                ("9",  "User Analysis",       "Outlier users + self-approvals"),
+                ("10", "Keyword Flags",       "High-risk keyword matches"),
+                ("11", "Full Population",     "All entries with pipe-separated Flags column"),
+                ("12", "Parameters",          "Run parameters & thresholds for audit trail"),
+            ]
+            for num, name, desc in sheets_info:
+                st.markdown(f"**Sheet {num}** — {name}: _{desc}_")
+
+        # ── Generate and download ─────────────────────────────────────────────
+        st.divider()
+
+        if st.button("Generate Excel Workpaper", type="secondary", use_container_width=True):
+            with st.spinner("Building workpaper (this may take a few seconds)…"):
+                try:
+                    buf = io.BytesIO()
+                    build_workbook(
+                        full_df=st.session_state.df_mapped,
+                        module_results=results,
+                        params=params,
+                        output_path=buf,
+                    )
+                    buf.seek(0)
+                    st.session_state["excel_bytes"]    = buf.getvalue()
+                    st.session_state["excel_filename"] = filename
+                    st.success("Workpaper generated — click **Download** below.")
+                except Exception as exc:
+                    st.error(f"Failed to generate workpaper: {exc}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+        if st.session_state.get("excel_bytes"):
+            st.download_button(
+                label="📥 Download Excel Workpaper",
+                data=st.session_state["excel_bytes"],
+                file_name=st.session_state["excel_filename"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+            )
+            st.caption(
+                "This file contains client data. "
+                "Store it in a secure, access-controlled location per your firm's data policy."
+            )
+
