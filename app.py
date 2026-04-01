@@ -749,4 +749,3 @@ with tab_export:
                 "This file contains client data. "
                 "Store it in a secure, access-controlled location per your firm's data policy."
             )
-
